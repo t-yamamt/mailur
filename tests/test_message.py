@@ -78,6 +78,10 @@ def test_encoding_aliases(gm_client, load_email):
         'Почта Gmail – особенная. Вот что Вам нужно знать.'
     )
 
+    msg = load_email('msg-encoding-cp-1251.txt', parsed=True)
+    assert msg['meta']['subject'] == 'Обновления музыки на сайте JeTune.ru'
+    assert msg['body'] == '<p>Здравствуйте.<br></p>'
+
 
 def test_addresses():
     res = addresses('test <test@example.com>')
@@ -161,19 +165,19 @@ def test_parts(gm_client, latest, load_email):
     # test some real emails with attachments
     m = load_email('msg-attachments-one-gmail.txt', parsed=True)
     assert m['meta']['files'] == [
-        {'filename': '20.png', 'path': '2', 'size': 544}
+        {'filename': '20.png', 'path': '2', 'size': 523}
     ]
 
     m = load_email('msg-attachments-two-gmail.txt', parsed=True)
     assert m['meta']['files'] == [
-        {'filename': '08.png', 'path': '2', 'size': 553},
-        {'filename': '09.png', 'path': '3', 'size': 520}
+        {'filename': '08.png', 'path': '2', 'size': 532},
+        {'filename': '09.png', 'path': '3', 'size': 503}
     ]
 
     m = load_email('msg-attachments-two-yandex.txt', parsed=True)
     assert m['meta']['files'] == [
-        {'filename': '49.png', 'path': '2', 'size': 482},
-        {'filename': '50.png', 'path': '3', 'size': 456}
+        {'filename': '49.png', 'path': '2', 'size': 472},
+        {'filename': '50.png', 'path': '3', 'size': 443}
     ]
 
     # test embeds
@@ -182,7 +186,7 @@ def test_parts(gm_client, latest, load_email):
         'content-id': '<ii_jcrlk9sk0_16122eb711c529e8>',
         'filename': '50.png',
         'path': '2',
-        'size': 456
+        'size': 443
     }]
     url = '/raw/%s/2' % m['meta']['origin_uid']
     assert url in m['body']

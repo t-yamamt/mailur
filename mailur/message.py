@@ -8,19 +8,20 @@ import re
 import urllib.parse
 import uuid
 from email.message import MIMEPart
-from email.parser import BytesParser
+from email.parser import BytesParser, Parser
 from email.utils import formatdate, getaddresses, parsedate_to_datetime
 
 from . import log
 
-encodings.aliases.aliases.update({
+aliases = {
     # Seems Google used gb2312 in some subjects, so there is another symbol
     # instead of dash, because of next bug:
     # https://bugs.python.org/issue24036
     'gb2312': 'gbk',
     # @naspeh got such encoding in my own mailbox
     'cp-1251': 'cp1251',
-})
+}
+encodings.aliases.aliases.update(aliases)
 
 
 def binary(txt, mimetype='text/plain'):
@@ -47,15 +48,27 @@ def parsed(raw, uid, time, mids):
     # like this one https://bugs.python.org/issue30788,
     # so use `max_line_length=None` by now, not sure if it's needed at all
     policy = email.policy.SMTPUTF8.clone(max_line_length=None)
-    if isinstance(raw, bytes):
-        orig = BytesParser(policy=policy).parsebytes(raw)
-    else:
-        orig = raw
+
+    orig_full = orig = BytesParser(policy=policy).parsebytes(raw)
+    charsets = orig_full.get_charsets()
+    charset = charsets and charsets[0]
+    if charset:
+        # When email is decoded with some charset instead of ASCII or UTF-8
+        # trying to decode message with specific charset to get right headers,
+        # like subject, etc.
+        try:
+            raw = raw.decode(aliases.get(charset, charset))
+            orig = Parser(policy=policy).parsestr(raw, headersonly=True)
+        except Exception:
+            pass
 
     meta = {'origin_uid': uid, 'files': []}
     msg = MIMEPart(policy)
 
-    fields = (('from', 1), ('sender', 1), ('to', 0), ('cc', 0), ('bcc', 0))
+    fields = (
+        ('from', 1), ('sender', 1),
+        ('reply-to', 0), ('to', 0), ('cc', 0), ('bcc', 0)
+    )
     for n, one in fields:
         try:
             v = orig[n]
@@ -97,7 +110,7 @@ def parsed(raw, uid, time, mids):
     date = orig['date']
     meta['date'] = date and int(parsedate_to_datetime(date).timestamp())
 
-    txt, htm, files = parse_part(orig)
+    txt, htm, files = parse_part(orig_full)
     if txt:
         txt = html.escape(txt)
     if htm:
@@ -116,7 +129,7 @@ def parsed(raw, uid, time, mids):
     msg.add_header('Message-Id', mid)
     msg.add_header('Subject', meta['subject'])
 
-    headers = ('Date', 'From', 'Sender', 'To', 'CC', 'BCC',)
+    headers = ('Date', 'From', 'Sender', 'Reply-To', 'To', 'CC', 'BCC',)
     for n in headers:
         try:
             v = orig[n]
@@ -179,8 +192,11 @@ def parse_part(part, path=''):
             files += files_
         return txt, htm, files
 
+    content = part.get_payload(decode=True)
+    charset = part.get_param('charset', 'utf8')
+    content = content.decode(aliases.get(charset, charset), errors='replace')
+
     ctype = part.get_content_type()
-    content = part.get_content()
     if ctype == 'text/html':
         htm = content
     elif ctype == 'text/plain':
@@ -206,7 +222,7 @@ def clean_html(htm, embeds):
 
     htm = re.sub(r'^\s*<\?xml.*?\?>', '', htm).strip()
     if not htm:
-        return '', ''
+        return '', '', False
 
     cleaner = Cleaner(
         links=False,
